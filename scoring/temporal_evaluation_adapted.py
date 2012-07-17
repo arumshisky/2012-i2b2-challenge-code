@@ -1,5 +1,17 @@
 #!/usr/bin/python 
 
+'''
+This TLINK evaluation script is written by Naushad UzZaman for TempEvel 3 evaluation
+
+It is adapted by Weiyi Sun to fit the i2b2 xml format and annotation guidelines.
+
+The changes include:
+    get_relation(): modified to fit the i2b2 format
+    get_relation_from_dictionary(): added to unify extent ids in the system/gold xmls
+    evaluate_two_files(): modified accordingly
+
+
+'''
 # this program evaluates systems that extract temporal information from text 
 # tlink -> temporal links
 
@@ -9,18 +21,7 @@
 
 # DURING relations are changed to SIMULTANEOUS
 
-'''
-This TLINK evaluation script is written by Naushad UzZaman for TempEvel 3 evalutaiton
 
-It is adapted to fit the i2b2 xml format and annoation guidelines.
-
-The changes include:
-    get_relation(): modified to fit the i2b2 format
-    get_relation_from_dictionary(): added to unify extent ids in the system/gold xmls
-    evaluate_two_files(): modified accordingly
-
-
-'''
 
 import time 
 import sys
@@ -121,8 +122,15 @@ def get_relations(tlink_xml,dicsys):
                     test_core=core
                     test_ref=ref
                 else:
-                    test_core=dicsys[core]
-                    test_ref=dicsys[ref]                  
+                    try:
+                        test_core=dicsys[core]
+                    except KeyError:
+                        print "\n%s" % "Error: Unknown EVENT or TIMEX id in TLINK: %s" % core
+                    try:
+                        test_ref=dicsys[ref]      
+                    except KeyError:
+                        print "\n%s" % "Error: Unknown EVENT or TIMEX id in TLINK: %s" % ref
+
                 if test_core<>'' and test_ref<>'':
                     relType=relType.replace('OVERLAP','SIMULTANEOUS')
                     foo = tlink_xml+'\t'+core+'\t'+ref+'\t'+relType+'\n'
@@ -146,8 +154,14 @@ def get_relations_from_dictionary(tlink_xml,dic):
                 if dic=={}:
                     pass
                 else:
-                    core=dic[core]
-                    ref=dic[ref] 
+                    try:
+                        test_core=dic[core]
+                    except KeyError:
+                        print "\n%s" % "Error: Unknown EVENT or TIMEX id in TLINK: %s" % core
+                    try:
+                        test_ref=dic[ref]      
+                    except KeyError:
+                        print "\n%s" % "Error: Unknown EVENT or TIMEX id in TLINK: %s" % ref
                 if core<>'' and ref<>'' and relType<>'':
                     relType=relType.replace('OVERLAP','SIMULTANEOUS')
                     foo = tlink_xml+'\t'+core+'\t'+ref+'\t'+relType+'\n'

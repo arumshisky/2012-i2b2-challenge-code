@@ -7,20 +7,24 @@ Provides some alternative ways to evaluates system output Tlinks against gold st
 
 The temporal closure in this script is completed using SputLink (SputLink citation?) 
 
+This script assumes gold standard EVENTs/TIMEX3s in both gold standard and system output.
+If that is not the case, please make sure that the EVENT/TIMEX3 ids in the gold standard match
+the ids in the system output, or the result will be wrong.
+
 - usage:
   $ python tlinkEvaluation.py [--oc] [--oo] [--cc] goldstandard_xml_filename system_output_xml_filename
   
-  --oc: Original against Closure:
+  --oc: Original against Closure [default]:
         -Precision: the total number of system output Tlinks that can be verified in the gold standard closure
                     divided by the total number of system output Tlinks
         -Recall: the total number gold standard output Tlinks that can be verified in the system closure
                  divided by the total number of gold standard output Tlinks
-  --oo: Origianl against Orignal:
+  --oo: Original against Original:
         -Precision: the total number of system output Tlinks that can be verified in the gold standard output
                     divided by the total number of system output Tlinks
         -Recall: the total number gold standard output Tlinks that can be verified in the system output
                  divided by the total number of gold standard output Tlinks  
-  --cc: Closure against Closuer:
+  --cc: Closure against Closure:
         -Precision: the total number of system closure Tlinks that can be verified in the gold standard closure
                     divided by the total number of system output Tlinks
         -Recall: the total number gold standard closure Tlinks that can be verified in the system closure
@@ -36,6 +40,7 @@ else:
     import re
     import time
     import subprocess
+    import stat
     
     
     header = """<fragment>
@@ -71,9 +76,9 @@ else:
         id=tuple[1]
         fromid=tuple[2]
         toid=tuple[4]
-        type=tuple[6]
-        type=type.replace('SIMULTANEOUS','OVERLAP')
-        return id, fromid, toid, type
+        attr_type=tuple[6]
+        attr_type=attr_type.replace('SIMULTANEOUS','OVERLAP')
+        return id, fromid, toid, attr_type
     
     def attr_by_closure(cline): #event to event
         """
@@ -84,11 +89,11 @@ else:
         re_exp = 'origin=\"([^"]*)\"\s+to[ET]ID=\"([^"]*)\"\s+from[ET]ID=\"([^"]*)\"\s+relType=\"([^"]*)\"+\/>'
         m = re.search(re_exp, cline)
         if m:
-            id, toid, fromid, type = m.groups()
+            id, toid, fromid, attr_type = m.groups()
         else:
             raise Exception("Malformed EtoE tag: %s" % (cline))
-        type=type.replace('SIMULTANEOUS','OVERLAP')
-        return fromid, toid, type
+        attr_type=attr_type.replace('SIMULTANEOUS','OVERLAP')
+        return fromid, toid, attr_type
     
     def attr_by_closure2(cline): #event to timex
         """
@@ -99,11 +104,11 @@ else:
         re_exp = 'from[TE]ID=\"([^"]*)\"\s+origin=\"([^"]*)\"\s+to[ET]ID=\"([^"]*)\"\s+relType=\"([^"]*)\"+\/>'
         m = re.search(re_exp, cline)
         if m:
-            fromid, id, toid, type = m.groups()
+            fromid, id, toid, attr_type = m.groups()
         else:
             raise Exception("Malformed EtoT tag: %s" % (cline))
-        type=type.replace('SIMULTANEOUS','OVERLAP')
-        return fromid, toid, type
+        attr_type=attr_type.replace('SIMULTANEOUS','OVERLAP')
+        return fromid, toid, attr_type
     
     def get_tlinks(text_fname):
         '''
@@ -113,7 +118,7 @@ else:
         Output:
             a tlinks tuple of all the tlinks in the file 
         '''
-        tf=open(text_fname)
+        tf=open(text_fname[:-5])
         lines = tf.readlines()
         tlinks=[]
         for line in lines:  
@@ -130,15 +135,20 @@ else:
         Output:
             a tlinks tuple of all the valid tlink output in the closure     
         '''
-        clines = open('sputlink/'+text_fname+'.closure.xml').readlines()
-        closed_tlinks=get_tlinks(text_fname)
-        existing_tlinks=closed_tlinks
-        for i in range(len(existing_tlinks)):
-            existing_tlinks[i]=existing_tlinks[1:]
+        temp_dir=os.path.join(os.getcwd(),'sputlink','closure_temp')
+        filename=re.split('[/\\\\]',text_fname)[-1]
+        cfilename=os.path.join(temp_dir,filename+'.'+str(os.stat(text_fname[:-5]).st_mtime)+'.closure.xml')
+        clines = open(cfilename).readlines()
+        orig_tlinks=get_tlinks(text_fname)
+        closed_tlinks=[]
+        existing_tlinks=[]
+        for tlink in orig_tlinks:
+            closed_tlinks.append(tlink)
+            existing_tlinks.append(tlink[1:])
         for cline in clines:
+            id=''
             if not re.search('<TLINK origin|relType=\"\"|relType=\"INCLUDES\"',cline): #T to E or T to T
                 if re.search('<TLINK fromTID',cline): 
-                    id=''
                     if re.search('origin=\"closure\"',cline):
                         id="closure"
                     elif re.search('origin=\" i\"',cline):
@@ -148,8 +158,8 @@ else:
                     if id<>'':
                         closed_tlink_tuple=attr_by_closure2(cline)
                         if closed_tlink_tuple not in existing_tlinks:
-                            fromid, toid, type=closed_tlink_tuple
-                            closed_tlinks.append([id,fromid, toid, type])
+                            fromid, toid, attr_type=closed_tlink_tuple
+                            closed_tlinks.append([id,fromid, toid, attr_type])
                             existing_tlinks.append([closed_tlink_tuple])
             elif not re.search('relType=\"\"|relType=\"INCLUDES\"',cline): # E to E or E to T
                 if re.search('origin=\"closure\"',cline):
@@ -161,8 +171,8 @@ else:
                 if id<>'':
                     closed_tlink_tuple=attr_by_closure(cline)
                     if closed_tlink_tuple not in existing_tlinks:
-                        fromid, toid, type=closed_tlink_tuple
-                        closed_tlinks.append([id,fromid, toid, type])
+                        fromid, toid, attr_type=closed_tlink_tuple
+                        closed_tlinks.append([id,fromid, toid, attr_type])
                         existing_tlinks.append([closed_tlink_tuple])     
         return closed_tlinks
     
@@ -179,7 +189,7 @@ else:
             option:         OrigVsClosure | ClosureVsClosure | OrigVsOrig
         
         Output:
-            totalcomlinks:    Total number of comparable Tlinks (tlinks whose extents 
+            totalcomlinks:    Total number of comparable TLINKs (tlinks whose extents 
                               were annotated by both xml files)
             totalmatch:       Total number of matched tlinks 
         '''
@@ -195,7 +205,6 @@ else:
         
         totalcomlinks=0
         totalmatch=0
-    
         for tlinks2 in tlinks_tuple2:
             if len(tlinks2)==4:
                 
@@ -207,10 +216,40 @@ else:
                         fromid = fromid2
                         toid = toid2
                     else:
-                        fromid = dic[fromid2]
-                        toid = dic[toid2]
+                        try:
+                            fromid = dic[fromid2]
+                        except KeyError:
+                            print "\n%s" % "Error: Unknown EVENT or TIMEX id in TLINK: %s" % fromid2
+                        try:
+                            toid = dic[toid2]
+                        except KeyError:
+                            print "\n%s" %  "Error: Unknown EVENT or TIMEX id in TLINK: %s" % toid
                     type2=tlinks2[3]
                     if fromid=="" or toid=="":
+                        pass            
+                    else:
+                        type1=""
+                        match=0
+                        for tlinks1 in tlinks_tuple1:
+                            if len(tlinks1)==4:
+                                if fromid==tlinks1[1] and toid==tlinks1[2]:
+                                    type1=tlinks1[3]
+                                    totalcomlinks+=1
+                                    if type2==type1:
+                                        match=1
+                                        totalmatch+=match
+                                        break
+                elif toid2 in ['Admission','Discharge']:
+                    if dic=={}:
+                        fromid = fromid2
+                    else:
+                        try:
+                            fromid = dic[fromid2]
+                        except KeyError:
+                            print "\n%s" % "Error: Unknown EVENT or TIMEX id in TLINK: %s" % fromid2
+                    type2=tlinks2[3]
+                    toid=toid2
+                    if fromid=="":
                         pass            
                     else:
                         type1=""
@@ -237,18 +276,13 @@ else:
         Args:
             text_fname: name of the MAE xml file to be processed
         '''
-        tf = open_file(text_fname)
+        tf = open_file(text_fname[:-5])
         lines=tf.readlines()
-        fdir=text_fname.split('/')[0:-1]
-        currentdir="sputlink/"
-        for subdir in fdir:
-            if subdir<>'':
-                if not os.path.isdir(currentdir+subdir):
-                    subprocess.call(['mkdir',currentdir+subdir])
-                    currentdir+=subdir+'/'
-                else:
-                    currentdir+=subdir+'/'
-        nfname="sputlink/"+text_fname+'.pcd.xml'
+        temp_dir=os.path.join(os.getcwd(),'sputlink','closure_temp')
+        filename=re.split('[/\\\\]',text_fname)[-1]
+        if not os.path.isdir(temp_dir):
+            os.mkdir(temp_dir)
+        nfname=os.path.join(temp_dir,filename+'.pcd.xml')
         nf=open(nfname, 'w')
         nf.write(header)
         count=3
@@ -262,17 +296,17 @@ else:
         count+=2
         for i in range(count, len(lines)):      
             if re.search("<EVENT id",lines[i]): 
-                lines[i]=lines[i].replace(" type=", " eventType=")
+                lines[i]=lines[i].replace(" type=", " eventtype=")
                 pre,post=lines[i].split(" id=")
                 outline=pre+" eid="+post
                 nf.write(outline)     
             elif re.search("<TIMEX3 id",lines[i]):  
-                lines[i]=lines[i].replace(" type=", " timexType=")
+                lines[i]=lines[i].replace(" type=", " timextype=")
                 pre,post=lines[i].split(" id=")
                 outline=pre+" tid="+post
                 nf.write(outline)     
             elif re.search("<SECTIME",lines[i]):
-                lines[i]=lines[i].replace(" type=", " secType=")   
+                lines[i]=lines[i].replace(" type=", " sectype=")   
                 nf.write(lines[i])  
             elif re.search("<TLINK",lines[i]):
                 pre,mid1=lines[i].split(" id=")
@@ -302,6 +336,8 @@ else:
     
     def tlinkEvaluation(gold_fname, system_fname, option, goldDic={}, sysDic={}):
         
+        gold_fname=gold_fname+'.gold'
+        system_fname=system_fname+'.syst'
         tlinkClosurePreprocess(gold_fname)
         tlinkClosurePreprocess(system_fname)
         precLinkCount, precMatchCount, recLinkCount, recMatchCount= [0, 0, 0, 0]
@@ -316,25 +352,40 @@ else:
                 recall=float(recMatchCount)/recLinkCount
     
         else:
-            if not os.path.isfile("sputlink/"+gold_fname+'.closure.xml'):
+            temp_dir=os.path.join(os.getcwd(),'sputlink','closure_temp')
+            gfilename=re.split('[/\\\\]',gold_fname)[-1]
+            sfilename=re.split('[/\\\\]',system_fname)[-1]
+            if not os.path.isfile(os.path.join(temp_dir,gfilename+'.'+str(os.stat(gold_fname[:-5]).st_mtime)+'.closure.xml')):
                 root=os.getcwd()
-                path=root+"/sputlink/"
+                absfile=os.path.abspath(gold_fname[:-5])
+                path=os.path.join(root,"sputlink")
                 os.chdir(path)
                 nf=open('sputlink.temp','w')
-                subprocess.call(['perl','merge.pl',gold_fname+'.pcd.xml',gold_fname+'.closure.xml'],stdout=nf,stderr=nf)
+                print "\nSputLink is computing the temporal closure... Please give it a moment..."
+                pcdfname=os.path.join('closure_temp',gfilename+'.pcd.xml')
+                closurefname=os.path.join('closure_temp',gfilename+'.'+str(os.stat(absfile).st_mtime)+'.closure.xml')
+                subprocess.call(['perl','merge.pl',pcdfname,closurefname],stdout=nf,stderr=nf)
                 nf.close()
-                subprocess.call(['rm','sputlink.temp'])
+                os.remove('sputlink.temp')
+    
                 os.chdir(root)
-            if not os.path.isfile("sputlink/"+system_fname+'.closure.xml'):
+                
+            if not os.path.isfile(os.path.join(temp_dir,sfilename+'.'+str(os.stat(system_fname[:-5]).st_mtime)+'.closure.xml')):
                 root=os.getcwd()
-                path=root+"/sputlink/"
+                absfile=os.path.abspath(system_fname[:-5])
+                path=os.path.join(root,"sputlink")
                 os.chdir(path)
                 nf=open('sputlink.temp','w')
-                subprocess.call(['perl','merge.pl',system_fname+'.pcd.xml',system_fname+'.closure.xml'],stdout=nf,stderr=nf)
+                print "\nSputLink is computing the temporal closure... Please give it a moment..."
+                pcdfname=os.path.join('closure_temp',sfilename+'.pcd.xml')
+                closurefname=os.path.join('closure_temp',sfilename+'.'+str(os.stat(absfile).st_mtime)+'.closure.xml')
+                
+                subprocess.call(['perl','merge.pl',pcdfname,closurefname],stdout=nf,stderr=nf)
                 nf.close()
-                subprocess.call(['rm','sputlink.temp'])
+                os.remove('sputlink.temp')
                 os.chdir(root)
-            if  os.path.isfile("sputlink/"+gold_fname+'.closure.xml') and os.path.isfile("sputlink/"+system_fname+'.closure.xml'):
+            if  os.path.isfile(os.path.join(temp_dir,gfilename+'.'+str(os.stat(gold_fname[:-5]).st_mtime)+'.closure.xml')) \
+            and os.path.isfile(os.path.join(temp_dir,sfilename+'.'+str(os.stat(system_fname[:-5]).st_mtime)+'.closure.xml')):
             
                 precLinkCount, precMatchCount = compare_tlinks(gold_fname, system_fname, sysDic, option)
                 recLinkCount, recMatchCount = compare_tlinks(system_fname, gold_fname, goldDic, option)
@@ -348,32 +399,58 @@ else:
         
     if __name__ == '__main__':
         usage= "%prog [options] [goldstandard-file] [systemOutput-file]" + __doc__
-        parser = argparse.ArgumentParser(description='Evaluate system output Tlinks against gold standard Tlinks.')
-        parser.add_argument('file', type=str, nargs=2,\
-                         help='the file or directory of the gold standard xml file(s), or the system output xml file(s)')
+        parser = argparse.ArgumentParser(description='Evaluate system output TLINKs against gold standard TLINKs.')
+        parser.add_argument('gold_file', type=str, nargs=1, \
+                            help='gold standard xml file')
+        parser.add_argument('system_file', type=str, nargs=1,
+                         help='system output xml file')
         parser.add_argument('--cc', dest='evaluation_option', action='store_const',\
-                          const='cc', default='oc', help='select different types of tlink evaluation: oc - original against closure; cc - closure against closure; oo - original against original (default: oc)')
+                          const='cc', default='oc', help='select different attr_types of tlink evaluation: oc - original against closure; cc - closure against closure; oo - original against original (default: oc)')
         parser.add_argument('--oc', dest='evaluation_option', action='store_const',\
-                          const='oc', default='oc', help='select different types of tlink evaluation: oc - original against closure; cc - closure against closure; oo - original against original (default: oc)')
+                          const='oc', default='oc', help='select different attr_types of tlink evaluation: oc - original against closure; cc - closure against closure; oo - original against original (default: oc)')
         parser.add_argument('--oo', dest='evaluation_option', action='store_const',\
-                          const='oo', default='oc', help='select different types of tlink evaluation: oc - original against closure; cc - closure against closure; oo - original against original (default: oc)')
+                          const='oo', default='oc', help='select different attr_types of tlink evaluation: oc - original against closure; cc - closure against closure; oo - original against original (default: oc)')
           
         args = parser.parse_args()
         # run on a single file
-        if len(args.file_des) == 2:
-            gold, system = args.file
+        gold=args.gold_file[0]
+        system=args.system_file[0]
+        if os.path.isfile(gold) and os.path.isfile(system):
+            
             if args.evaluation_option=='oo':
                 precLinkCount, recLinkCount, precMatchCount,  recMatchCount=tlinkEvaluation(gold, system,'OrigVsOrig')
             elif args.evaluation_option=='cc':
                 precLinkCount, recLinkCount, precMatchCount,  recMatchCount=tlinkEvaluation(gold, system,'ClosureVsClosure')
             elif args.evaluation_option=='oc':
                 precLinkCount, recLinkCount, precMatchCount,  recMatchCount=tlinkEvaluation(gold, system,'OrigVsClosure')
-            print     """
-            Total number of comparable Tlinks: 
-               Gold Standard : \t"""+str(recLinkCount)+"""
-               System Output : \t"""+str(precLinkCount)+"""
+
+            if precLinkCount>0:
+                precision=float(precMatchCount)/precLinkCount
+            else:
+                precision=0.0
+            if recLinkCount>0:
+                recall=float(recMatchCount)/recLinkCount
+            else:
+                recall=0.0
+            if (precLinkCount+recLinkCount)>0:                                       
+                averagePR=(precMatchCount+recMatchCount)*1.0/(precLinkCount+recLinkCount)
+            else:
+                averagePR=0.0
+            if (precision+recall)>0:
+                fScore=2*(precision*recall)/(precision+recall)
+            else:
+                fScore=0.0
+            print """
+            Total number of comparable TLINKs: 
+               Gold Standard : \t\t"""+str(recMatchCount)+"""
+               System Output : \t\t"""+str(precMatchCount)+"""
             --------------
-            Recall : \t\t"""+'{:.2}'.format(1.0*recMatchCount/recLinkCount)+"""
-            Precision: \t\t""" + '{:.2}'.format(1.0*precMatchCount/precLinkCount)+'\n'
+            Recall : \t\t\t"""+'%.4f'%(recall)+"""
+            Precision: \t\t\t""" + '%.4f'%(precision)+"""
+            Average P&R : \t\t"""+'%.4f'%(averagePR)+"""
+            F measure : \t\t"""+'%.4f'%(fScore)+'\n'
+
+            print "WARNING: Running TLINK evaluation by itself assumes gold standard EVENTs/TIMEX3s in both gold standard and system output. If that is not the case, please make sure that the EVENT/TIMEX3 ids in the gold standard match the ids in the system output, or the result will be wrong."
+
         else:
-            print "Error: Please input exactly 2 arguments: gold_standard_filename, system_file_name"
+            print "Error: Please input exactly 2 arguments: gold_standard_filename, system_file_name. Use i2b2Evaluation.py for evaluating two directories"

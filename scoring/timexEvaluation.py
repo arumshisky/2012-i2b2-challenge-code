@@ -19,7 +19,7 @@ Evaluates system output Timex3s against gold standard Timex3s
        e.g. system outputs 5 timexes, 3 of which can be verified in the goldstandard
             2 out of the 3 have the same Timex3 'type' attribute as the goldstandard
             the system type match score will be 2/3=66.6%
-       - TYPE, MOD attribute: exact attribute match, normalize for upper/lower case
+       - type, MOD attribute: exact attribute match, normalize for upper/lower case
        - VAL attribute: will normalize for:
        1) missing time designator 'T' in unambiguous cases: 
             e.g. P23H = PT23H, but PT3M<>P3M; 
@@ -128,6 +128,8 @@ else:
                 else:
                     if val1[0]=='P' and val2[0]=='P':
                         return  comparePeriod(val1[1:],mod1,val2[1:],mod2)
+                    else:
+                        return 0
                     
             
     def comparePeriod(period1,mod1,period2,mod2):
@@ -148,8 +150,8 @@ else:
                         else:
                             return 0
                     else:
-                        quant1=period1.strip()
-                        quant2=period2.strip()
+                        quant1=period1[1:-1]
+                        quant2=period2[1:-1]
                         if abs(float(quant1)-float(quant2))<3:
                             return 1
                         else:
@@ -181,7 +183,7 @@ else:
                     return 1
             else:
                 if period1[0]=='T':
-                    quant1=float(period1.strip())
+                    quant1=float(period1[1:-1])
                     prefix='T'
                     
                 else:
@@ -223,9 +225,9 @@ else:
         return quant
             
     
-    def compare_timex(text_fname1, text_fname2,option, dic):     
+    def compare_timex(text_fname1, text_fname2, option, dic):     
         '''
-        This file verifies whether the Timex3s in timexfname1 can be found in timexfname2:
+        Check whether the TIMEX3s in text_fname1 can be found in text_fname2:
         
         args:
             text_fname1: filename of the first xml file 
@@ -235,9 +237,9 @@ else:
                      to the corresponding id in second one
         
         Output:
-            totalrecords: total number of Timex3 in the first file
-            matchrecords: total number of Timex3 in the first file that can be found in the second file
-            tspanPartcialCredit: same as above, but discount overlap timex3 matches (as 0.5), and exact match as 1
+            totalrecords: total number of TIMEX3 in the first file
+            matchrecords: total number of TIMEX3 in the first file that can be found in the second file
+            tspanPartcialCredit: same as above, but discount overlap TIMEX3 matches (as 0.5), and exact match as 1
             ttyp:         number of correct type in the first file
             tval:         number of correct val in the first file
             tmod:         number of correct mod in the first file
@@ -271,19 +273,23 @@ else:
                         words1.remove(punctuation)
                     while punctuation in words2:
                         words2.remove(punctuation)
-                if start1<=start2: 
-                    if end1>=start2+1:
-                        spanScore=0.5
-                        if words1==words2:
-                            spanScore=1   
-                        break
+                if (not re.search('\w', text2)) or (not re.search('\w', text1)):
+                    #if text1 or text2 only contains white spaces, it is considered as mismatch
+                    spanScore=0
                 else:
-                    if end2>start1+1:
-                        spanScore=0.5
-                        if words1==words2:
-                            spanScore=1                       
-                        break
-            type=0 
+                    if start1<=start2: 
+                        if end1>=start2+1:
+                            spanScore=0.5
+                            if words1==words2:
+                                spanScore=1   
+                            break
+                    else:
+                        if end2>start1+1:
+                            spanScore=0.5
+                            if words1==words2:
+                                spanScore=1                       
+                            break
+            attr_type=0 
             val=0
             mod=0
             if option=='exact':
@@ -291,14 +297,28 @@ else:
                     matchrecords+=1
                     dic[id1]=id2
                     if type1==type2:
-                        type=1
-                    if type1.upper() in ['DURATION','FREQUENCY'] and type2.upper() in ['DURATION','FREQUENCY']:
-                        val=DurationFrequencyValCompare(val1.upper(),mod1.rstrip(),val2.upper(),mod2.rstrip())
+                        attr_type=1
+                    if type1.upper() in ['DURATION','FREQUENCY'] and type2.upper() in ['DURATION','FREQUENCY'] and val1<>'' and val2<>'':
+                        duration=re.compile('^PT*\d*\.?\d*[YMWDHS]?$')
+                        frequency=re.compile('^R\d*\.?\d*P?T?\d*\.?\d*[YMWDHS]?$')
+                        if type1.upper() == 'FREQUENCY' and type2.upper()=='FREQUENCY':
+                            
+                            if frequency.match(val1.upper()) and frequency.match(val2.upper()):
+                                val=DurationFrequencyValCompare(val1.upper(),mod1.rstrip(),val2.upper(),mod2.rstrip())
+                            else:
+                                val=0
+                        if type1.upper() == 'DURATION' and type2.upper()=='DURATION':
+                            if duration.match(val2.upper()) and duration.match(val2.upper()):
+                                val=DurationFrequencyValCompare(val1.upper(),mod1.rstrip(),val2.upper(),mod2.rstrip())
+                            else:
+                                val=0
+                             
                     else:
                         if val1.upper()==val2.upper():
                             val=1
                         else:
                             val=0
+                            
                     if mod1==mod2:
                         mod=1  
             else: 
@@ -306,9 +326,21 @@ else:
                     matchrecords+=1
                     dic[id1]=id2
                     if type1==type2:
-                        type=1
-                    if type1.upper() in ['DURATION','FREQUENCY'] and type2.upper() in ['DURATION','FREQUENCY']:
-                        val=DurationFrequencyValCompare(val1.upper(),mod1.rstrip(),val2.upper(),mod2.rstrip())
+                        attr_type=1
+                    if type1.upper() in ['DURATION','FREQUENCY'] and type2.upper() in ['DURATION','FREQUENCY'] and val1<>'' and val2<>'':
+                        duration=re.compile('^PT*\d*\.?\d*[YMWDHS]?$')
+                        frequency=re.compile('^R\d*\.?\d*P?T?\d*\.?\d*[YMWDHS]?$')
+                        if type1.upper() == 'FREQUENCY' and type2.upper()=='FREQUENCY':
+                            
+                            if frequency.match(val1.upper()) and frequency.match(val2.upper()):
+                                val=DurationFrequencyValCompare(val1.upper(),mod1.rstrip(),val2.upper(),mod2.rstrip())
+                            else:
+                                val=0
+                        if type1.upper() == 'DURATION' and type2.upper()=='DURATION':
+                            if duration.match(val2.upper()) and duration.match(val2.upper()):
+                                val=DurationFrequencyValCompare(val1.upper(),mod1.rstrip(),val2.upper(),mod2.rstrip())
+                            else:
+                                val=0
                     else:
                         if val1.upper()==val2.upper():
                             val=1
@@ -317,7 +349,7 @@ else:
                     if mod1==mod2:
                         mod=1   
             tspanPartcialCredit+=spanScore
-            ttyp+=type
+            ttyp+=attr_type
             tval+=val
             tmod+=mod
         return totalrecords, matchrecords, tspanPartcialCredit, ttyp, tval, tmod, dic
@@ -344,7 +376,7 @@ else:
             systemTimexCount: total number of Timex marked in the system output
             precCount:      system matched Timex found in gold standard 
             recallCount:    gold standard matched Timex found in system 
-            recallType:     correct type count in gold standard matched Timex found in system 
+            recalltype:     correct type count in gold standard matched Timex found in system 
             recallVal:      correct val count in gold standard matched Timex found in system 
             recallMod:      correct modifier count in gold standard matched Timex found in system 
             recallPC:       partial credit recall match
@@ -352,11 +384,11 @@ else:
         '''
         #compute recall
         recallScores=compare_timex(gold_fname, system_fname,option, goldDic)
-        goldTimexCount, recallCount, recallPC, recallType, recallVal, recallMod, goldDic=recallScores
+        goldTimexCount, recallCount, recallPC, recalltype, recallVal, recallMod, goldDic=recallScores
         
         #compute precision
         precisionScores=compare_timex(system_fname, gold_fname,option, systemDic)
-        systemTimexCount, precCount, precPC, precType, precVal, precMod, systemDi=precisionScores
+        systemTimexCount, precCount, precPC, prectype, precVal, precMod, systemDi=precisionScores
         
         if goldTimexCount<>0:
             if option=='partialCredit':
@@ -374,45 +406,58 @@ else:
             precision=0
         #attribute score: percentage of the correct attribute in total matched # of timex. same as temp eval 2
         if recallCount<>0:
-            typeScore=float(recallType)/recallCount
+            typeScore=float(recalltype)/recallCount
             valScore=float(recallVal)/recallCount
             modScore=float(recallMod)/recallCount
-        averagePR=((recall*goldTimexCount)+(precision*systemTimexCount))/(goldTimexCount+systemTimexCount)
-        fScore=2*(precision*recall)/(precision+recall)   
+        else:
+            typeScore=0.0
+            valScore=0.0
+            modScore=0.0
+        if (goldTimexCount+systemTimexCount)>0:
+            averagePR=((recall*goldTimexCount)+(precision*systemTimexCount))/(goldTimexCount+systemTimexCount)
+        else:
+            averagePR=0.0
+        if (precision+recall)>0:
+            fScore=2*(precision*recall)/(precision+recall) 
+        else:
+            fScore=0.0
+        
         print("""
-            Total number of Timexes: 
+            Total number of TIMEX3s: 
                Gold Standard :\t\t"""+str(goldTimexCount)+"""
                System Output :\t\t"""+str(systemTimexCount)+"""
             --------------
-            Precision :\t\t\t"""+'{:.2}'.format(precision)+"""
-            Recall :\t\t\t""" + '{:.2}'.format(recall)+"""
-            Average P&R : \t\t"""+'{:.2}'.format(averagePR)+"""
-            F measure : \t\t"""+'{:.2}'.format(fScore)+"""
+            Precision :\t\t\t"""+'%.4f'%(precision)+"""
+            Recall :\t\t\t""" + '%.4f'%(recall)+"""
+            Average P&R : \t\t"""+'%.4f'%(averagePR)+"""
+            F measure : \t\t"""+'%.4f'%(fScore)+"""
             --------------
-            Type match score :\t\t"""+'{:.2}'.format(typeScore)+"""
-            Val match score :\t\t"""+'{:.2}'.format(valScore)+"""
-            Mod match score :\t\t"""+'{:.2}'.format(modScore))
+            type match score :\t\t"""+'%.4f'%(typeScore)+"""
+            Val match score :\t\t"""+'%.4f'%(valScore)+"""
+            Mod match score :\t\t"""+'%.4f'%(modScore))
+        
         goldDic['Admission']='Admission'
         goldDic['Discharge']='Discharge'
         systemDic['Admission']='Admission'
         systemDic['Discharge']='Discharge'    
-        return goldDic, systemDic,goldTimexCount,systemTimexCount,precCount,recallCount,recallType,recallVal,recallMod,recallPC,precPC
+        return goldDic, systemDic,goldTimexCount,systemTimexCount,precCount,recallCount,recalltype,recallVal,recallMod,recallPC,precPC
             
     
     if __name__ == '__main__':
         usage= "%prog [options] [goldstandard-file] [systemOutput-file]" + __doc__
         parser = argparse.ArgumentParser(description='Evaluate system output Timex3s against gold standard Timex3s.')
         parser.add_argument('gold_file', type=str, nargs=1, \
-                            help='the file or directory of the gold standard xml file')
+                            help='gold standard xml file')
         parser.add_argument('system_file', type=str, nargs=1,
-                         help='the file or directory of the system output xml file')
+                         help='system output xml file')
            
         args = parser.parse_args()
         
         # run on a single file
-        if 1:
+        if os.path.isfile(args.gold_file[0]) and os.path.isfile(args.system_file[0]):
             gold=args.gold_file[0]
             system=args.system_file[0]
             timexEvaluation(gold, system,'overlap')
             print "Warning: This script calculates overlapping timex span match between two files only. Please use the i2b2Evaluation.py script instead for more options."
-        
+        else:
+            print "Error: Please use i2b2Evaluation.py for evaluating two directories"

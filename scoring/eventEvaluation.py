@@ -9,7 +9,8 @@ Evaluates system output Events against gold standard Events
 - usage:
   $ python eventEvaluation.py goldstandard_xml_filename system_output_xml_filename
   
-  - Overlapping extents are considered matches
+  - Overlapping extents are considered matches (exact extent matches and partial credit
+    matches are available in i2ibEvaluation.py)
   - Recall:
        number of EVENTs in system output that overlap with gold standard EVENT extents
   - Precision:
@@ -96,7 +97,7 @@ else:
             totalEvents:         total number of Events in the first file
             matchEvents:         total number of Events in the first file 
                                  that can be found in the second file
-            tspanPartcialCredit: same as above, but discount overlap Event matches 
+            tspanPartialCredit:  same as above, but discount overlap Event matches 
                                  (as 0.5), and exact match as 1
             ttyp:                number of correct type in the first file
             tpol:                number of correct polarity in the first file
@@ -117,14 +118,14 @@ else:
         for event_tuple1 in events1:
             if event_tuple1<>['']:
                 spanScore=0
-                id1, startStr1, endStr1, text1, modality1, polarity1, type1=event_tuple1
-                id2, startStr2, endStr2, text2, modality2, polarity2, type2=["", "", "", "", "", "", ""]
+                id1, startStr1, endStr1, text1, modality1, polarity1, attr_type1=event_tuple1
+                id2, startStr2, endStr2, text2, modality2, polarity2, attr_type2=["", "", "", "", "", "", ""]
                 dic[id1]=''
                 start1=int(startStr1)
                 end1=int(endStr1)
                 for event_tuple2 in events2:
                     if event_tuple2<>['']:
-                        id2, startStr2, endStr2, text2, modality2, polarity2, type2=event_tuple2
+                        id2, startStr2, endStr2, text2, modality2, polarity2, attr_type2=event_tuple2
                         start2=int(startStr2)
                         end2=int(endStr2)
                         words1=text1.split()
@@ -134,21 +135,25 @@ else:
                                 words1.remove(punctuation)
                             while punctuation in words2:
                                 words2.remove(punctuation)
-                        if start1<=start2: 
-                            if end1>=start2+1:
-                                spanScore=0.5
-                                if words1==words2:
-                                    spanScore=1   
-                                break
+                        if (not re.search('\w', text2)) or (not re.search('\w', text1)):
+                            #if text1 or text2 only contains white spaces, it is considered as mismatch
+                            spanScore=0
                         else:
-                            if end2>start1+1:
-                                spanScore=0.5
-                                if words1==words2:
-                                    spanScore=1                       
-                                break
+                            if start1<=start2: 
+                                if end1>=start2+1:
+                                    spanScore=0.5
+                                    if words1==words2:
+                                        spanScore=1   
+                                    break
+                            else:
+                                if end2>start1+1:
+                                    spanScore=0.5
+                                    if words1==words2:
+                                        spanScore=1                       
+                                    break
                 modality=0
                 polarity=0
-                type=0
+                attr_type=0
                 if option=='exact':
                     if spanScore==1:
                         matchEvents+=1
@@ -157,8 +162,8 @@ else:
                             modality=1
                         if polarity1.upper()==polarity2.upper():
                             polarity=1   
-                        if type1.upper()==type2.upper():
-                            type=1
+                        if attr_type1.upper()==attr_type2.upper():
+                            attr_type=1
                 else:
                     if spanScore>0:
                         matchEvents+=1
@@ -167,12 +172,12 @@ else:
                             modality=1
                         if polarity1.upper()==polarity2.upper():
                             polarity=1   
-                        if type1.upper()==type2.upper():
-                            type=1                              
+                        if attr_type1.upper()==attr_type2.upper():
+                            attr_type=1                              
                 tspanPartcialCredit+=spanScore
                 tmod+=modality
                 tpol+=polarity
-                ttyp+=type
+                ttyp+=attr_type
             
         return totalEvents, matchEvents, tspanPartcialCredit, tmod, tpol, ttyp,dic
         
@@ -190,13 +195,13 @@ else:
         Output:
             goldDic:        a dictionary that map Event id in goldstardard to those
                             in the system output
-            systemDic:      a dictionary that map Event id in system outpt to those
+            systemDic:      a dictionary that map Event id in system output to those
                             in the gold standard
             goldEventCount: total number of EVENT annotated in the gold standard
             systemEventCount: total number of EVENT marked in the system output
             precCount:      system matched EVENT found in gold standard 
             recallCount:    gold standard matched EVENT found in system 
-            recallType:     correct type count in gold standard matched EVENT found in system 
+            recalltype:     correct type count in gold standard matched EVENT found in system 
             recallPol:      correct polarity count in gold standard matched EVENT found in system 
             recallMod:      correct modality count in gold standard matched EVENT found in system 
             recallPC:       partial credit recall match
@@ -205,8 +210,8 @@ else:
         tf1 = open_file(gold_fname)
         tf2 = open_file(system_fname)
         if tf1 and tf2:
-            goldEventCount, recallCount, recallPC, recallMod, recallPol, recallType, goldDic=compare_events(gold_fname, system_fname,option)
-            systemEventCount, precCount, precPC, precMod, precPol, precType, systemDic=compare_events(system_fname, gold_fname,option)
+            goldEventCount, recallCount, recallPC, recallMod, recallPol, recalltype, goldDic=compare_events(gold_fname, system_fname,option)
+            systemEventCount, precCount, precPC, precMod, precPol, prectype, systemDic=compare_events(system_fname, gold_fname,option)
             if goldEventCount<>0:
                 if option=='partialCredit':
                     recall=float(recallPC)/goldEventCount
@@ -223,44 +228,53 @@ else:
                 precision=0
             #attribute score: percentage of the correct attribute in total matched # of event. same as temp eval 2
             if recallCount<>0:
-                typeScore=float(recallType)/recallCount
+                typeScore=float(recalltype)/recallCount
                 polScore=float(recallPol)/recallCount
                 modScore=float(recallMod)/recallCount
             else:
-                typeScore=0
-                polScore=0
-                modScore=0
-            averagePR=((recall*goldEventCount)+(precision*systemEventCount))/(goldEventCount+systemEventCount)
-            fScore=2*(precision*recall)/(precision+recall)
+                typeScore=0.0
+                polScore=0.0
+                modScore=0.0
+            if (goldEventCount+systemEventCount)>0:
+                averagePR=((recall*goldEventCount)+(precision*systemEventCount))/(goldEventCount+systemEventCount)
+            else:
+                averagePR=0.0
+            if (precision+recall)>0:
+                fScore=2*(precision*recall)/(precision+recall)
+            else:
+                fScore=0.0
             print("""
             Total number of events: 
                Gold Standard: \t\t"""+str(goldEventCount)+"""
                System Output: \t\t"""+str(systemEventCount)+"""
             --------------
-            Recall : \t\t\t"""+'{:.2}'.format(recall)+"""
-            Precision : \t\t""" + '{:.2}'.format(precision)+"""
-            Average P&R : \t\t"""+'{:.2}'.format(averagePR)+"""
-            F measure : \t\t"""+'{:.2}'.format(fScore)+"""
+            Recall : \t\t\t"""+'%.4f'%(recall)+"""
+            Precision : \t\t""" + '%.4f'%(precision)+"""
+            Average P&R : \t\t"""+'%.4f'%(averagePR)+"""
+            F measure : \t\t"""+'%.4f'%(fScore)+"""
             --------------
-            modality match score :\t"""+'{:.2}'.format(modScore)+"""
-            Polarity match score :\t"""+'{:.2}'.format(polScore)+"""
-            Type match score :\t\t"""+'{:.2}'.format(typeScore)+"\n")
-            return goldDic, systemDic, goldEventCount,systemEventCount,precCount,recallCount,recallType,recallPol,recallMod,recallPC, precPC
+            modality match score :\t"""+'%.4f'%(modScore)+"""
+            Polarity match score :\t"""+'%.4f'%(polScore)+"""
+            type match score :\t\t"""+'%.4f'%(typeScore)+"\n")
+            return goldDic, systemDic, goldEventCount,systemEventCount,precCount,recallCount,recalltype,recallPol,recallMod,recallPC, precPC
     
     if __name__ == '__main__':
         usage= "%prog [options] [goldstandard-file] [systemOutput-file]" + __doc__
         parser = argparse.ArgumentParser(description='Evaluate system output EVENTs against gold standard EVENTs.')
         parser.add_argument('gold_file', type=str, nargs=1,\
-                         help='the file or directory of the gold standard xml file')
+                         help='the file of the gold standard xml')
         parser.add_argument('system_file', type=str, nargs=1,\
-                         help='the file or directory of the system output xml file')
+                         help='the file of the system output xml ')
            
         args = parser.parse_args()
         
         # run on a single file
-        if 1:
+        if os.path.isfile(args.gold_file[0]) and os.path.isfile(args.system_file[0]):
             gold=args.gold_file[0]
             system=args.system_file[0]
             eventEvaluation(gold, system,'overlap')
             print "Warning: This script calculates overlapping event span match between two files only. Please use the i2b2Evaluation.py script instead for more options."
+        else:
+            print "Error: Please use i2b2Evaluation.py for evaluating two directories"
+        
         
